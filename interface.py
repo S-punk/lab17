@@ -1,10 +1,13 @@
 import random
 import time
 import tkinter as tk
+import cards
+import os
 from tkinter import messagebox, simpledialog  # Добавьте simpledialog
 from game import PokerGame
 from players import Player, Bot
 from cards import PokerHand
+from PIL import Image, ImageTk
 
 class PokerApp:
     def __init__(self, root):
@@ -13,13 +16,21 @@ class PokerApp:
         self.game = PokerGame([Player("Игрок"), Bot("Бот 1"), Bot("Бот 2")])
         self.round_number = 1  # Счетчик раундов
         self.max_rounds = 10  # Максимальное количество раундов
+        self.enter_pressed = tk.IntVar()
+
+        # Загрузка изображений карт
+        # Получаем путь к директории, где находится текущий скрипт
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Формируем путь к папке cards
+        cards_dir = os.path.join(script_dir, "cards")
+        self.card_images = self.load_card_images(cards_dir)
 
         # Основной canvas для отрисовки карт
         self.canvas = tk.Canvas(root, width=800, height=400, bg="green")
         self.canvas.pack()
 
         # Текстовое поле для логов
-        self.log_text = tk.Text(root, height=10, width=80)
+        self.log_text = tk.Text(root, height=10, width=80, state="disabled")
         self.log_text.pack()
 
         # Метка для отображения текущего раунда
@@ -42,6 +53,36 @@ class PokerApp:
 
         # Запуск игры
         self.start_game()
+
+    def wait_for_enter(self):
+        """Ожидает нажатия клавиши Enter."""
+        self.update_log("Нажмите Enter, чтобы продолжить...")
+        self.root.bind("<Return>", self.on_enter_pressed)  # Привязываем Enter к обработчику
+        self.root.wait_variable(self.enter_pressed)  # Ожидаем, пока переменная не изменится
+        self.root.unbind("<Return>")  # Отвязываем Enter после нажатия
+
+    def on_enter_pressed(self, event):
+        """Обработчик нажатия Enter."""
+        self.enter_pressed.set(1)  # Устанавливаем переменную в 1, чтобы продолжить выполнение
+        if not self.game.players[0].folded: 
+            self.update_log("Выберите действие")
+
+    def load_card_images(self, folder_path: str) -> dict:
+        """Загружает изображения карт из папки и изменяет их размер."""
+        card_images = {}
+        for rank in cards.Rank:
+            for suit in cards.Suit:
+                # Формируем имя файла (например, "2_of_hearts.png")
+                card_name = f"{rank.name.lower()}_of_{suit.name.lower()}.png"
+                card_path = f"{folder_path}/{card_name}"
+                try:
+                    # Загружаем изображение и изменяем его размер
+                    image = Image.open(card_path)
+                    image = image.resize((80, 120), Image.Resampling.LANCZOS)  # Изменяем размер до 80x120
+                    card_images[(rank, suit)] = ImageTk.PhotoImage(image)
+                except FileNotFoundError:
+                    print(f"Файл {card_path} не найден.")
+        return card_images
 
     def start_game(self):
         """Начало игры: раздача карт и первый раунд ставок."""
@@ -93,17 +134,23 @@ class PokerApp:
     def draw_card(self, card, x, y, hidden=False):
         """Отрисовка одной карты."""
         if hidden:
-            # Если карта скрыта, рисуем синий прямоугольник с вопросительным знаком
             self.canvas.create_rectangle(x, y, x + 80, y + 120, fill="blue")
             self.canvas.create_text(x + 40, y + 60, text="?", font=("Arial", 12))
         else:
-            # Если карта открыта, рисуем белый прямоугольник с текстом карты
-            self.canvas.create_rectangle(x, y, x + 80, y + 120, fill="white")
-            self.canvas.create_text(x + 40, y + 60, text=f"{card.rank.name}\n{card.suit.value}", font=("Arial", 12))
+            # Если карта открыта, рисуем её изображение
+            card_image = self.card_images.get((card.rank, card.suit))
+            if card_image:
+                self.canvas.create_image(x, y, anchor=tk.NW, image=card_image)
+            else:
+                # Если изображение карты отсутствует, рисуем белый прямоугольник с текстом
+                self.canvas.create_rectangle(x, y, x + 80, y + 120, fill="white")
+                self.canvas.create_text(x + 40, y + 60, text=f"{card.rank.name}\n{card.suit.value}", font=("Arial", 12))
 
     def update_log(self, message: str):
         """Обновление логов."""
-        self.log_text.insert(tk.END, f"{message}" + "\n")
+        self.log_text.config(state="normal")  # Включаем редактирование
+        self.log_text.insert(tk.END, message + "\n")  # Добавляем сообщение
+        self.log_text.config(state="disabled")  # Отключаем редактирование
         self.log_text.see(tk.END)  # Прокрутка вниз
 
     def betting_round(self):
@@ -137,7 +184,7 @@ class PokerApp:
         self.game.players[0].fold()
         self.update_log("Игрок решил Fold.")
         self.disable_buttons()
-        time.sleep(1.5)
+        
         self.game.players[0].acted = True 
         self.continue_betting_round()  # Продолжение раунда ставок
 
@@ -147,7 +194,7 @@ class PokerApp:
             self.update_log("Игрок решил Call.")
             self.disable_buttons()
             self.game.players[0].acted = True  # Отмечаем, что игрок сделал ход
-            time.sleep(1.5)
+            
             self.continue_betting_round()  # Продолжение раунда ставок
         else:
             messagebox.showerror("Ошибка", "Недостаточно денег!")
@@ -167,7 +214,7 @@ class PokerApp:
                 self.update_log(f"Игрок решил Raise на {amount}.")
                 self.disable_buttons()
                 self.game.players[0].acted = True  # Отмечаем, что игрок сделал ход
-                time.sleep(1.5)
+                
                 self.continue_betting_round()  # Продолжение раунда ставок
             else:
                 messagebox.showerror("Ошибка", "Недостаточно денег!")
@@ -202,7 +249,7 @@ class PokerApp:
     def process_bot_action(self, bot: Bot, action: str):
         """Обработка действий бота."""
         if action == "fold":
-            time.sleep(1.5)
+            
             bot.fold()
             bot.acted = True
             self.update_log(f"{bot.name} сбросил карты.")
@@ -210,7 +257,7 @@ class PokerApp:
             if bot.bet(self.game.current_bet):
                 self.game.pot += (self.game.current_bet - bot.current_bet)
                 self.update_log(f"{bot.name} поддержал ставку.")
-                time.sleep(1.5)
+                
                 bot.acted = True
             else:
                 self.update_log(f"{bot.name} не может поддержать ставку и выбывает.")
@@ -223,11 +270,11 @@ class PokerApp:
                 self.game.current_bet = raise_amount
                 bot.current_bet = self.game.current_bet
                 self.update_log(f"{bot.name} поднял ставку до {raise_amount}.")
-                time.sleep(1.5)
+                
                 bot.acted = True
             else:
                 self.update_log(f"{bot.name} не может поднять ставку и выбывает.")
-                time.sleep(1.5)
+                
                 bot.acted = True
                 bot.fold()
 
@@ -253,7 +300,8 @@ class PokerApp:
         active_players = [player for player in self.game.players if not player.folded]
         if len(active_players) == 1:
             winner = active_players[0]
-            self.update_log(f"{winner.name} выиграл раунд!")
+            self.update_log(f"{winner.name} выиграл раунд! Нажмите Enter, чтобы продолжить.")
+            self.wait_for_enter()  # Ожидаем нажатия Enter
             winner.money = winner.money + self.game.pot
             self.game.pot = 0
             for player in self.game.players:
@@ -275,10 +323,12 @@ class PokerApp:
         # Определяем победителя
         if len(winners) == 1:
             winner = winners[0]
-            self.update_log(f"{winner.name} выиграл раунд с комбинацией {combination}!")
+            self.update_log(f"{winner.name} выиграл раунд с комбинацией {combination}! Нажмите Enter, чтобы продолжить.")
+            self.wait_for_enter()  # Ожидаем нажатия Enter
             winner.money += self.game.pot
         else:
-            self.update_log(f"Ничья между {', '.join([winner.name for winner in winners])}!")
+            self.update_log(f"Ничья между {', '.join([winner.name for winner in winners])}! Нажмите Enter, чтобы продолжить.")
+            self.wait_for_enter()  # Ожидаем нажатия Enter
             split_pot = self.game.pot // len(winners)
             for winner in winners:
                 winner.money += split_pot
@@ -294,6 +344,15 @@ class PokerApp:
         # Крупье выкладывает следующие карты на стол
         self.game.dealer.deal_next_community_cards()
         self.draw_cards()  # Отрисовываем карты
+        if len(self.game.community_cards) == 3:
+            self.update_log("Флоп выложен. Нажмите Enter, чтобы продолжить.")
+            self.wait_for_enter()  # Ожидаем нажатия Enter
+        elif len(self.game.community_cards) == 4:
+            self.update_log("Терн выложен. Нажмите Enter, чтобы продолжить.")
+            self.wait_for_enter()  # Ожидаем нажатия Enter
+        else:
+            self.update_log("Ривер выложен. Нажмите Enter, чтобы продолжить.")
+            self.wait_for_enter()  # Ожидаем нажатия Enter
 
         # Если все карты на столе выложены, завершаем раунд
         if len(self.game.community_cards) == 5:
