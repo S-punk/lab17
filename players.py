@@ -9,6 +9,7 @@ class Player:
         self.hand = []
         self.folded = False
         self.acted = False
+        self.current_bet = 0
 
     def add_card(self, card: Card):
         self.hand.append(card)

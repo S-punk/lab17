@@ -45,6 +45,8 @@ class PokerApp:
 
     def start_game(self):
         """Начало игры: раздача карт и первый раунд ставок."""
+        self.game.players[0].money -= 200
+        self.game.pot = 200
         self.game.deal_cards()
         self.game.deal_community_cards(3)
         self.draw_cards()
@@ -65,7 +67,22 @@ class PokerApp:
 
         x, y = 150, 50 # Позиция для покерной руки
         hand = PokerHand(player.hand + self.game.community_cards)
-        self.canvas.create_text(x, y, text =f"{hand.evaluate()}", font=("Arial", 12))
+        self.canvas.create_text(x, y, text =f"Ваша покерная рука: {hand.evaluate()}", font=("Arial", 12))
+
+        x, y = 250, 15
+        self.canvas.create_text(x, y, text=f"Текущая ставка: {self.game.current_bet}", font=("Arial", 12))
+
+        x, y = 500, 15
+        self.canvas.create_text(x, y, text=f"Текущий банк: {self.game.pot}", font=("Arial", 12))
+
+        x, y = 700, 150
+        self.canvas.create_text(x, y, text =f"Ваши деньги: {self.game.players[0].money}", font=("Arial", 12))
+
+        x, y = 700, 170
+        self.canvas.create_text(x, y, text =f"Деньги Бота 1: {self.game.players[1].money}", font=("Arial", 12))
+
+        x, y = 700, 190
+        self.canvas.create_text(x, y, text =f"Деньги Бота 2: {self.game.players[2].money}", font=("Arial", 12))
 
         # Отрисовка общих карт на столе
         x, y = 50, 100  # Позиция для общих карт
@@ -91,22 +108,25 @@ class PokerApp:
 
     def betting_round(self):
         """Раунд ставок."""
-        for player in self.game.players:
-            player.acted = False  # Сбрасываем флаг "сделан ход"
+        if self.game.players[0].folded:
+            self.continue_betting_round()
+        else:
+            for player in self.game.players:
+                player.acted = False  # Сбрасываем флаг "сделан ход"
 
-        for player in self.game.players:
-            if not player.folded:
-                if isinstance(player, Bot):
-                    action = player.decide_action(self.game.current_bet)
-                    self.update_log(f"{player.name} решил {action}")
-                    self.process_bot_action(player, action)
-                    player.acted = True  # Отмечаем, что бот сделал ход
-                else:
-                    # Включение кнопок для игрока
-                    self.fold_button.config(state=tk.NORMAL)
-                    self.call_button.config(state=tk.NORMAL)
-                    self.raise_button.config(state=tk.NORMAL)
-                    break  # Ожидание действия игрока
+            for player in self.game.players:
+                if not player.folded:
+                    if isinstance(player, Bot):
+                        action = player.decide_action(self.game.current_bet)
+                        self.update_log(f"{player.name} решил {action}")
+                        self.process_bot_action(player, action)
+                        player.acted = True  # Отмечаем, что бот сделал ход
+                    else:
+                        # Включение кнопок для игрока
+                        self.fold_button.config(state=tk.NORMAL)
+                        self.call_button.config(state=tk.NORMAL)
+                        self.raise_button.config(state=tk.NORMAL)
+                        break  # Ожидание действия игрока
         
         
         # Проверяем, завершился ли раунд
@@ -117,6 +137,7 @@ class PokerApp:
         self.game.players[0].fold()
         self.update_log("Игрок решил Fold.")
         self.disable_buttons()
+        time.sleep(1.5)
         self.game.players[0].acted = True 
         self.continue_betting_round()  # Продолжение раунда ставок
 
@@ -126,6 +147,7 @@ class PokerApp:
             self.update_log("Игрок решил Call.")
             self.disable_buttons()
             self.game.players[0].acted = True  # Отмечаем, что игрок сделал ход
+            time.sleep(1.5)
             self.continue_betting_round()  # Продолжение раунда ставок
         else:
             messagebox.showerror("Ошибка", "Недостаточно денег!")
@@ -139,52 +161,73 @@ class PokerApp:
             minvalue=1,
             maxvalue=self.game.players[0].money)
         if amount is not None:  # Если пользователь не нажал "Отмена"
+            self.game.pot += amount
             if self.game.players[0].bet(amount):
                 self.game.current_bet += amount
                 self.update_log(f"Игрок решил Raise на {amount}.")
                 self.disable_buttons()
                 self.game.players[0].acted = True  # Отмечаем, что игрок сделал ход
+                time.sleep(1.5)
                 self.continue_betting_round()  # Продолжение раунда ставок
             else:
                 messagebox.showerror("Ошибка", "Недостаточно денег!")
 
     def continue_betting_round(self):
         """Продолжение раунда ставок после действия игрока."""
-        for player in self.game.players[1:]:  # Пропускаем игрока (он уже сделал ход)
-            if player.folded:
-                continue
-            if not player.folded:
-                if isinstance(player, Bot):
-                    action = player.decide_action(self.game.current_bet)
-                    self.update_log(f"{player.name} решил {action}")
-                    self.process_bot_action(player, action)
-        if self.check_round_end():
+        active_players = [player for player in self.game.players if not player.folded]
+        if len(active_players) == 1:
+            self.update_log(f"Все сбросили карты!")
             self.update_log("Раунд закончен")
-            self.end_betting_round()  # Завершение раунда ставок
+            self.end_round()
+        else:
+            for player in self.game.players[1:]:
+                active_players = [player for player in self.game.players if not player.folded]
+                if len(active_players) == 1:
+                    self.update_log(f"Все сбросили карты!")
+                    self.update_log("Раунд закончен")
+                    self.end_round()
+                    return
+                if player.folded:
+                    continue
+                if not player.folded:
+                    if isinstance(player, Bot):
+                        action = player.decide_action(self.game.current_bet)
+                        self.update_log(f"{player.name} решил {action}")
+                        self.process_bot_action(player, action)
+            if self.check_round_end():
+                self.update_log("Раунд закончен")
+                self.end_betting_round()  # Завершение раунда ставок
         
 
     def process_bot_action(self, bot: Bot, action: str):
         """Обработка действий бота."""
         if action == "fold":
+            time.sleep(1.5)
             bot.fold()
             bot.acted = True
             self.update_log(f"{bot.name} сбросил карты.")
         elif action == "call":
             if bot.bet(self.game.current_bet):
-                bot.acted = True
+                self.game.pot += (self.game.current_bet - bot.current_bet)
                 self.update_log(f"{bot.name} поддержал ставку.")
+                time.sleep(1.5)
+                bot.acted = True
             else:
                 self.update_log(f"{bot.name} не может поддержать ставку и выбывает.")
-                bot.fold()
+                self.root.after(1500, bot.fold())
                 bot.acted = True
         elif action == "raise":
-            raise_amount = random.randint(self.game.current_bet + 1, bot.money)
+            raise_amount = random.randint(self.game.current_bet + 1, self.game.current_bet + 10000)
             if bot.bet(raise_amount):
+                self.game.pot += raise_amount
                 self.game.current_bet = raise_amount
-                bot.acted = True
+                bot.current_bet = self.game.current_bet
                 self.update_log(f"{bot.name} поднял ставку до {raise_amount}.")
+                time.sleep(1.5)
+                bot.acted = True
             else:
                 self.update_log(f"{bot.name} не может поднять ставку и выбывает.")
+                time.sleep(1.5)
                 bot.acted = True
                 bot.fold()
 
@@ -211,8 +254,10 @@ class PokerApp:
         if len(active_players) == 1:
             winner = active_players[0]
             self.update_log(f"{winner.name} выиграл раунд!")
-            winner.money += self.game.pot
+            winner.money = winner.money + self.game.pot
             self.game.pot = 0
+            for player in self.game.players:
+                player.folded = False
             return
 
         # Сравниваем комбинации карт
@@ -227,17 +272,18 @@ class PokerApp:
                 winners = [player]
             elif strength == best_hand[1]:
                 winners.append(player)
-
         # Определяем победителя
         if len(winners) == 1:
             winner = winners[0]
-            self.update_log(f"{winner.name} выиграл раунд с комбинацией {best_hand[0]}!")
+            self.update_log(f"{winner.name} выиграл раунд с комбинацией {combination}!")
             winner.money += self.game.pot
         else:
             self.update_log(f"Ничья между {', '.join([winner.name for winner in winners])}!")
             split_pot = self.game.pot // len(winners)
             for winner in winners:
                 winner.money += split_pot
+        for player in self.game.players:
+            player.folded = False
         self.game.pot = 0
 
     def end_betting_round(self):
@@ -258,22 +304,27 @@ class PokerApp:
     def end_round(self):
         """Завершение раунда."""
         self.update_log("Раунд завершен.")
-        for player in self.game.players:
-            player.folded = False
+        active_players = [player for player in self.game.players if not player.folded]
+        print(active_players)
+        if len(active_players) == 0:
+            self.update_log(f"Все сбросили карты!")
+            self.start_new_round()  # Начинаем новый раунд
+            return
         self.determine_winner()  # Определяем победителя
-        
         self.start_new_round()  # Начинаем новый раунд
 
     def start_new_round(self):
         """Начало нового раунда."""
+        self.game.players[0].money -= 200
+        self.game.pot = 200
         if self.round_number >= self.max_rounds or len([player for player in self.game.players if not player.folded]) <= 1:
             self.end_game()  # Завершение игры
             return
-
         self.round_number += 1
         self.round_label.config(text=f"Раунд: {self.round_number}")
 
         self.game.start_round()  # Крупье начинает новый раунд
+        self.game.deck.__init__()
         self.draw_cards()  # Отрисовываем карты
         self.betting_round()  # Начинаем раунд ставок
 
